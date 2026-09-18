@@ -824,7 +824,8 @@ describe("external shared-state ownership", () => {
 
   it("fences a claim made during a canonical current-schema cold open", () => {
     const env = createEnv();
-    const databasePath = openOpenClawStateDatabase({ env }).path;
+    const { path: databasePath, db: seeded } = openOpenClawStateDatabase({ env });
+    const databaseLocation = seeded.location();
     closeOpenClawStateDatabaseForTest();
     const { DatabaseSync } = requireNodeSqlite();
     const originalExec = Object.getOwnPropertyDescriptor(DatabaseSync.prototype, "exec")?.value as
@@ -839,7 +840,7 @@ describe("external shared-state ownership", () => {
       this: import("node:sqlite").DatabaseSync,
       sql: string,
     ) {
-      if (!validating.size && sql === "BEGIN" && this.location() === databasePath) {
+      if (!validating.size && sql === "BEGIN" && this.location() === databaseLocation) {
         validating.add(this);
       }
       originalExec.call(this, sql);
