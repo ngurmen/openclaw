@@ -285,8 +285,9 @@ function ensureColumns(
 ): Array<{ tableName: string; columnName: string }> {
   const added: Array<{ tableName: string; columnName: string }> = [];
   for (const [tableName, definition] of definitions) {
-    if (ensureColumn(db, tableName, definition)) {
-      added.push({ tableName, columnName: definition.split(" ", 1)[0] });
+    const columnName = definition.trim().split(/\s+/, 1)[0];
+    if (columnName && ensureColumn(db, tableName, definition)) {
+      added.push({ tableName, columnName });
     }
   }
   return added;
