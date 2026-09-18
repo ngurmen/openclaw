@@ -19,6 +19,7 @@ import {
   type PreparedModelRuntimeSnapshot,
 } from "../agents/prepared-model-runtime.js";
 import { resolvePreparedModelRuntimeOwnerBySnapshot } from "../agents/prepared-model-runtime.owner.js";
+import { registerPreparedModelRuntimePublicationListener } from "../agents/prepared-model-runtime.publication-events.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   createOpenClawTestState,
@@ -126,6 +127,9 @@ describe("catalog renewal metadata broadcasts", () => {
       const entered = createDeferred();
       const release = createDeferred();
       const original = owner.readFullModelCatalog!()!;
+      const publications =
+        vi.fn<Parameters<typeof registerPreparedModelRuntimePublicationListener>[0]>();
+      const unregister = registerPreparedModelRuntimePublicationListener(publications);
       const next = structuredClone(harness.inventory);
       if (change === "added") {
         next.entries.push({ provider: "custom", id: "new", name: "New" });
@@ -186,6 +190,20 @@ describe("catalog renewal metadata broadcasts", () => {
         await renewal;
         await nextEventLoopTurn();
         const result = await harness.lifecycle.read({ agentId: "main" });
+        expect(
+          publications.mock.calls
+            .map(([event]) => event)
+            .filter((event) => event.phase === "catalog-published"),
+        ).toEqual(
+          change === "failed"
+            ? []
+            : [
+                {
+                  phase: "catalog-published",
+                  modelFactsChanged: change !== "identical" && change !== "usage",
+                },
+              ],
+        );
         const changes = change === "identical" || change === "usage" ? 0 : 1;
         expect(harness.broadcast.mock.calls).toEqual(
           Array.from({ length: changes }, () => [
@@ -219,10 +237,18 @@ describe("catalog renewal metadata broadcasts", () => {
           expect(owner.readFullModelCatalog!()?.refreshFailed).toBeUndefined();
           expect(harness.broadcast).toHaveBeenCalledTimes(2);
           expect(buildCommands).toHaveBeenCalledTimes(2);
+          if (change === "failed") {
+            expect(publications).toHaveBeenLastCalledWith({
+              phase: "catalog-published",
+              modelFactsChanged: false,
+              refreshStatusChanged: true,
+            });
+          }
         }
       } finally {
         release.resolve();
         await renewal;
+        unregister();
         await harness.stop();
       }
     },
