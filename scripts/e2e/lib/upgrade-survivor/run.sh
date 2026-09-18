@@ -1465,6 +1465,11 @@ update_candidate() {
     update_node_options+=" --import=$PWD/scripts/e2e/lib/upgrade-survivor/workshop-doctor-recovery.mjs"
     update_env+=("OPENCLAW_UPGRADE_SURVIVOR_WORKSHOP_STATE_DIR=$OPENCLAW_STATE_DIR")
   fi
+  if [ "$SCENARIO" = "legacy-operator-state" ] && [ "$UPDATE_RESTART_MODE" = "manual" ] &&
+    { [ "${baseline_version:-}" = "2026.9.3" ] || [ "${baseline_version:-}" = "2026.9.4" ]; }; then
+    update_node_options+=" --import=$PWD/scripts/e2e/lib/upgrade-survivor/legacy-operator-cron-history.mjs"
+    update_env+=("OPENCLAW_UPGRADE_SURVIVOR_CRON_HISTORY_FIXTURE=$ARTIFACT_ROOT/legacy-operator-cron-history.json")
+  fi
   update_env+=(
     "OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT=$observation_root"
     "NODE_OPTIONS=$update_node_options"
@@ -2264,7 +2269,20 @@ if [ "$SCENARIO" = "legacy-operator-state" ]; then
     seed-legacy-operator-external-plugin
 fi
 run_missing_load_path_fixture unavailable
+if [ "$SCENARIO" = "legacy-operator-state" ] && [ "$UPDATE_RESTART_MODE" = "manual" ] &&
+  { [ "${baseline_version:-}" = "2026.9.3" ] || [ "${baseline_version:-}" = "2026.9.4" ]; }; then
+  # Retained history is added after baseline/backup commands so only the real
+  # updater and its candidate Doctor can consume this migration specimen.
+  phase seed-retained-cron-history node scripts/e2e/lib/upgrade-survivor/legacy-operator-cron-history.mjs \
+    seed "$(package_root)" "$CANDIDATE_SPEC"
+fi
 phase update-candidate update_candidate_for_install_mode
+if [ "$SCENARIO" = "legacy-operator-state" ] && [ "$UPDATE_RESTART_MODE" = "manual" ] &&
+  { [ "${baseline_version:-}" = "2026.9.3" ] || [ "${baseline_version:-}" = "2026.9.4" ]; }; then
+  # Native read-only inspection precedes every candidate CLI/Gateway probe.
+  phase assert-retained-cron-doctor node scripts/e2e/lib/upgrade-survivor/legacy-operator-cron-history.mjs \
+    assert "$last_update_observation_root"
+fi
 run_missing_load_path_fixture post-update
 if [ "$SCENARIO" = "legacy-operator-state" ]; then
   phase assert-formerly-bundled-plugin node scripts/e2e/lib/upgrade-survivor/assertions.mjs \

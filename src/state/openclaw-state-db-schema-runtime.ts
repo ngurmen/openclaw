@@ -77,92 +77,85 @@ export function ensureOpenClawStateRuntimeSchema(
   return withStateSchemaFence({ databasePath: pathname }, () => {
     const now = Date.now();
     const retiredTableChanges: string[] = [];
-    db.exec("PRAGMA foreign_keys = OFF;"); // Referenced-table rebuilds require this before BEGIN.
-    try {
-      const changes = runStateSchemaMigrationTransaction(
-        db,
-        pathname,
-        () => {
-          assertOpenClawStateWriteAllowed({ database: db, databasePath: pathname, env });
-          assertSupportedStateSchemaVersion(db, pathname);
-          if (initializeNativeOnly && !isUninitializedNativeStartupDatabase(db)) {
-            return [];
-          }
-          const previousVersion = readStateSchemaMigrationVersion(db);
-          if (previousVersion === OPENCLAW_STATE_SCHEMA_VERSION) {
-            assertNoLegacyStateRuntimeRepair(db, pathname);
-            const indexes = verifyAndRepairCanonicalSqliteIndexes(
-              db,
-              pathname,
-              OPENCLAW_STATE_SCHEMA_SQL,
-              {
-                allowMissingColumns: true,
-                validateAfterRepair: () => assertCurrentStateRuntimeSchema(db, pathname),
-              },
-            );
-            ensureAdditiveStateColumns(db, "runtime");
-            assertCurrentStateRuntimeSchema(db, pathname);
-            writeCurrentStateSchemaMetadata(db, now);
-            return indexes.length > 0
-              ? [`Rebuilt canonical shared-state SQLite indexes (${indexes.length})`]
-              : [];
-          }
-
-          // Older schemas still need atomic content transforms before retiring their columns.
-          openClawStateMigrationAssertions.get(previousVersion)?.(db, { pathname });
-          // Automatic preparation enters without the physical opener's integrity preflight.
-          assertSqliteIntegrity(db, pathname);
-          dropLegacyStateTables(db);
-          const changes = retirements.runRetiredStateTableMigrations(db, previousVersion);
-          retiredTableChanges.push(...changes);
-          if (migrateSingletonStateFoldInV12(db, previousVersion)) {
-            changes.push("Folded singleton state tables into config_machine_state (v12)");
-          }
-          if (migrateWorkerPlacementExecutionModeSchema(db, previousVersion)) {
-            changes.push("Migrated cloud worker placements to execution modes");
-          }
-          const pathMigration = migrateAgentDatabaseRelativePaths(db, previousVersion, pathname);
-          changes.push(...describeAgentPathMigration(pathMigration));
-          ensureAdditiveStateColumns(db, "repair");
-          for (const migration of versionedStateMigrations) {
-            if (migration.migrate(db, previousVersion)) {
-              changes.push(migration.applied);
-            }
-          }
-          migrateSessionWatchCursorProvenance(db);
-          assertCanonicalStateSchemaShape(db, pathname);
-          executeCanonicalStateSchema(db, { includeVersionLazyAdditiveTables: true });
-          migrateLegacyCronRunLogsToTaskRuns(db);
-          if (previousVersion < OPENCLAW_STATE_STRICT_SCHEMA_VERSION) {
-            repairLegacyGatewayRestartHandoffsForStrictMigration(db);
-            ensureFirstUseAdditiveStateColumnsForStrictMigration(db);
-            const strict = migrateSqliteSchemaToStrictInTransaction(
-              db,
-              getOpenClawStateRuntimeSchema({ includeVersionLazyAdditiveTables: true }),
-              { databaseLabel: pathname },
-            );
-            if (strict.migratedTables.length > 0) {
-              changes.push(
-                `Migrated shared state tables to SQLite STRICT typing (${strict.migratedTables.length})`,
-              );
-            }
-          }
-          repairCanonicalSqliteIndexes(db, pathname, OPENCLAW_STATE_SCHEMA_SQL, {
-            verifyPhysicalIntegrity: false,
-          });
+    const applied = runStateSchemaMigrationTransaction(
+      db,
+      pathname,
+      () => {
+        assertOpenClawStateWriteAllowed({ database: db, databasePath: pathname, env });
+        assertSupportedStateSchemaVersion(db, pathname);
+        if (initializeNativeOnly && !isUninitializedNativeStartupDatabase(db)) {
+          return [];
+        }
+        const previousVersion = readStateSchemaMigrationVersion(db);
+        if (previousVersion === OPENCLAW_STATE_SCHEMA_VERSION) {
+          assertNoLegacyStateRuntimeRepair(db, pathname);
+          const indexes = verifyAndRepairCanonicalSqliteIndexes(
+            db,
+            pathname,
+            OPENCLAW_STATE_SCHEMA_SQL,
+            {
+              allowMissingColumns: true,
+              validateAfterRepair: () => assertCurrentStateRuntimeSchema(db, pathname),
+            },
+          );
+          ensureAdditiveStateColumns(db, "runtime");
+          assertCurrentStateRuntimeSchema(db, pathname);
           writeCurrentStateSchemaMetadata(db, now);
-          assertOpenClawStateDatabaseForMaintenance(db, { pathname });
-          warnAgentPathMigration(stateDbLog, pathMigration, pathname);
-          return changes;
-        },
-        { busyTimeoutMs, databaseLabel: pathname, operationLabel: "state.schema.ensure" },
-      );
-      retiredTableChanges.forEach(retirements.logRetiredStateTableMigration);
-      return changes;
-    } finally {
-      if (db.isOpen) {
-        db.exec("PRAGMA foreign_keys = ON;");
-      }
-    }
+          return indexes.length > 0
+            ? [`Rebuilt canonical shared-state SQLite indexes (${indexes.length})`]
+            : [];
+        }
+
+        // Older schemas still need atomic content transforms before retiring their columns.
+        openClawStateMigrationAssertions.get(previousVersion)?.(db, { pathname });
+        // Automatic preparation enters without the physical opener's integrity preflight.
+        assertSqliteIntegrity(db, pathname);
+        dropLegacyStateTables(db);
+        const changes = retirements.runRetiredStateTableMigrations(db, previousVersion);
+        retiredTableChanges.push(...changes);
+        if (migrateSingletonStateFoldInV12(db, previousVersion)) {
+          changes.push("Folded singleton state tables into config_machine_state (v12)");
+        }
+        if (migrateWorkerPlacementExecutionModeSchema(db, previousVersion)) {
+          changes.push("Migrated cloud worker placements to execution modes");
+        }
+        const pathMigration = migrateAgentDatabaseRelativePaths(db, previousVersion, pathname);
+        changes.push(...describeAgentPathMigration(pathMigration));
+        ensureAdditiveStateColumns(db, "repair");
+        for (const migration of versionedStateMigrations) {
+          if (migration.migrate(db, previousVersion)) {
+            changes.push(migration.applied);
+          }
+        }
+        migrateSessionWatchCursorProvenance(db);
+        assertCanonicalStateSchemaShape(db, pathname);
+        executeCanonicalStateSchema(db, { includeVersionLazyAdditiveTables: true });
+        migrateLegacyCronRunLogsToTaskRuns(db);
+        if (previousVersion < OPENCLAW_STATE_STRICT_SCHEMA_VERSION) {
+          repairLegacyGatewayRestartHandoffsForStrictMigration(db);
+          ensureFirstUseAdditiveStateColumnsForStrictMigration(db);
+          const strict = migrateSqliteSchemaToStrictInTransaction(
+            db,
+            getOpenClawStateRuntimeSchema({ includeVersionLazyAdditiveTables: true }),
+            { databaseLabel: pathname },
+          );
+          if (strict.migratedTables.length > 0) {
+            changes.push(
+              `Migrated shared state tables to SQLite STRICT typing (${strict.migratedTables.length})`,
+            );
+          }
+        }
+        repairCanonicalSqliteIndexes(db, pathname, OPENCLAW_STATE_SCHEMA_SQL, {
+          verifyPhysicalIntegrity: false,
+        });
+        writeCurrentStateSchemaMetadata(db, now);
+        assertOpenClawStateDatabaseForMaintenance(db, { pathname });
+        warnAgentPathMigration(stateDbLog, pathMigration, pathname);
+        return changes;
+      },
+      { busyTimeoutMs, databaseLabel: pathname, operationLabel: "state.schema.ensure" },
+    );
+    retiredTableChanges.forEach(retirements.logRetiredStateTableMigration);
+    return applied;
   });
 }
