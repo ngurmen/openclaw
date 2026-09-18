@@ -86,10 +86,8 @@ export async function createSessionRowProjection(params: {
         (current.lastMessagePreview !== fields.lastMessagePreview ||
           !isDeepStrictEqual(current.fallbackModel, fields.fallbackModel))
       ) {
-        Object.assign(current, {
-          lastMessagePreview: fields.lastMessagePreview,
-          fallbackModel: fields.fallbackModel,
-        });
+        current.lastMessagePreview = fields.lastMessagePreview;
+        current.fallbackModel = fields.fallbackModel;
         dirty.add(records.identity(current));
         void ensureMaterialized().catch(() => {});
       }
@@ -438,7 +436,16 @@ export async function createSessionRowProjection(params: {
       modelCatalog = next;
       catalogDirty = undefined;
     }
-    withAgentRosterFactsBatch(cfg, () => refresh([...dirty].slice(0, 64)));
+    withAgentRosterFactsBatch(cfg, () => {
+      const ids: string[] = [];
+      for (const id of dirty) {
+        ids.push(id);
+        if (ids.length === 64) {
+          break;
+        }
+      }
+      refresh(ids);
+    });
   }
   async function drain() {
     for (;;) {
